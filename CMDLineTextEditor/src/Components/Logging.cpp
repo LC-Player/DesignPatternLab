@@ -20,7 +20,12 @@ Logger::Logger(const std::string& logOutPath) {
     buffer << "session start at " << GetTimestamp() << std::endl;
 }
 Logger::~Logger() {
-    Save();
+    try {
+        Save();
+    }
+    catch (const std::exception& e) {
+        Outputer::InfoLn() << "Failed to save" << this->m_FilePath << ": " << e.what();
+    }
 }
 
 void Logger::Log(const Command& command) {

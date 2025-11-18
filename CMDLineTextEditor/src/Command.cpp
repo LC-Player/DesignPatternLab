@@ -73,11 +73,9 @@ Command::Command(const std::string& cmdText)
 	}
 	if (s_VerbToType.find(m_Verb) == s_VerbToType.end()) {
 		m_Type = Type::None;
-		m_Handler = HandlerType::None;
 		return;
 	}
 	m_Type = s_VerbToType[m_Verb];
-	m_Handler = GetHandlerFromType(m_Type);
 
 	ParseArguments(cmdText, verbEnd);
 

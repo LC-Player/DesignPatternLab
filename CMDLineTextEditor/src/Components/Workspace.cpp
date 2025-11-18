@@ -9,7 +9,7 @@
 #include "nlohmann/json.hpp"
 
 Workspace::Workspace(const std::string& workspaceData)
-    : CommandHandler()
+    : CommandExecutor()
 {
     m_CurrentEditor = -1;
     m_LogMode = LogMode::NoLog;
@@ -21,93 +21,74 @@ Workspace::Workspace(const std::string& workspaceData)
         } catch (const std::exception&) {}
     }
     m_Logger = CreateScope<Logger>("data/.workspace.log");
+    RegisterCommandHandlingStrategies();
 }
 
 void Workspace::Handle(const Command& command)
 {
-    m_CurrentCommand = command;
-    m_Success = false;
-    switch (command.GetType())
-    {
-    case Command::Type::Load:
-        HandleLoad();
-        break;
-    case Command::Type::Save:
-        HandleSave();
-        break;
-    case Command::Type::Init:
-        HandleInit();
-        break;
-    case Command::Type::Close:
-        HandleClose();
-        break;
-    case Command::Type::Edit:
-        HandleEdit();
-        break;
-    case Command::Type::EditorList:
-        HandleEditorList();
-        break;
-    case Command::Type::DirTree:
-        HandleDirTree();
-        break;
-    case Command::Type::Exit:
-        HandleExit();
-        break;
-    case Command::Type::LogOn:
-        HandleLogChange(LogMode::WithLog);
-        break;
-    case Command::Type::LogOff:
-        HandleLogChange(LogMode::NoLog);
-        break;
-    case Command::Type::LogShow:
-        HandleLogShow();
-        break;
-    default:
-        Outputer::ErrorLn(command) << "Command not handled in Workspace::Handle";
-        return;
+    bool success = false;
+    if (m_Dispatcher.Dispatch(this, command)) {
+        success = true;
+    } else {
+        Outputer::ErrorLn(command) << "Command not handled in workspace.";
     }
-    if (m_Success && m_LogMode == LogMode::WithLog) {
+    if (success && m_LogMode == LogMode::WithLog) {
         m_Logger->Log(command);
     }
 }
 
-void Workspace::CreateEditorByFilePath(std::vector<std::string>::value_type fp) {
+void Workspace::CreateEditorByFilePath(const std::string& fp) {
     const Ref<Editor> editor = CreateRef<Editor>(fp);
     m_Editors.push_back(editor);
 }
 
-void Workspace::HandleLoad()
+void Workspace::RegisterCommandHandlingStrategies() {
+    m_Dispatcher.Register(Command::Type::Load, &Workspace::HandleLoad);
+    m_Dispatcher.Register(Command::Type::Save, &Workspace::HandleSave);
+    m_Dispatcher.Register(Command::Type::Init, &Workspace::HandleInit);
+    m_Dispatcher.Register(Command::Type::Close, &Workspace::HandleClose);
+    m_Dispatcher.Register(Command::Type::Edit, &Workspace::HandleEdit);
+    m_Dispatcher.Register(Command::Type::EditorList, &Workspace::HandleEditorList);
+    m_Dispatcher.Register(Command::Type::DirTree, &Workspace::HandleDirTree);
+    m_Dispatcher.Register(Command::Type::LogOn, &Workspace::HandleLogOn);
+    m_Dispatcher.Register(Command::Type::LogOff, &Workspace::HandleLogOff);
+    m_Dispatcher.Register(Command::Type::LogShow, &Workspace::HandleLogShow);
+    m_Dispatcher.Register(Command::Type::Exit, &Workspace::HandleExit);
+}
+
+bool Workspace::HandleLoad(const Command& command)
 {
-    auto fp = m_CurrentCommand.GetArgs()[0];
+    auto fp = command.GetArgs()[0];
     if (auto existing = GetEditorIndexByPath(fp); existing >= 0){
         m_CurrentEditor = existing;
-        return;
+        return false;
     }
     try {
         CreateEditorByFilePath(fp);
     } catch (const std::exception& e) {
-        Outputer::ErrorLn(m_CurrentCommand) << "Failed to create editor: " << e.what();
-        return;
+        Outputer::ErrorLn(command) << "Failed to create editor: " << e.what();
+        return false;
     }
 
     m_CurrentEditor = static_cast<int>(m_Editors.size()) - 1;
     UpdateLogMode(GetCurrentEditor()->GetLogMode());
-    m_Success = true;
+
+    return true;
 }
 
-void Workspace::HandleSave(){
-    auto& args = m_CurrentCommand.GetArgs();
+bool Workspace::HandleSave(const Command& command){
+    auto& args = command.GetArgs();
     Ref<Editor> target;
-    if (args.empty()){
+    if (args.empty()){ // save current editor
         target = GetCurrentEditor();
         if (target == nullptr){
-            Outputer::ErrorLn(m_CurrentCommand) << "No current editor";
-            return;
+            Outputer::ErrorLn(command) << "No current editor";
+            return false;
         }
         target->Save();
-        return;
+        return true;
     }
-    const auto fp = m_CurrentCommand.GetArgs()[0];
+    const auto fp = command.GetArgs()[0];
     if (fp == "all"){
         for (const auto& editor : m_Editors){
             editor->Save();
@@ -115,19 +96,21 @@ void Workspace::HandleSave(){
     }
     target = GetEditorByPath(fp);
     if (target == nullptr){
-        Outputer::ErrorLn(m_CurrentCommand) << "File `" << fp << "` not found in workspace";
-        return;
+        Outputer::ErrorLn(command) << "File `" << fp << "` not found in workspace";
+        return false;
     }
     target->Save();
     GetCurrentEditor()->UpdateTime();
-    m_Success = true;
+
+    return true;
 }
-void Workspace::HandleInit(){
-    auto& args = m_CurrentCommand.GetArgs();
-    const auto fp = args[0];
+
+bool Workspace::HandleInit(const Command& command){
+    auto& args = command.GetArgs();
+    const auto& fp = args[0];
     if (GetEditorIndexByPath(fp) >= 0){
-        Outputer::ErrorLn(m_CurrentCommand) << "File `" << args[0] << "` found in workspace";
-        return;
+        Outputer::ErrorLn(command) << "File `" << args[0] << "` found in workspace";
+        return false;
     }
     LogMode logMode = LogMode::None;
     if (args.size() >= 2 && args[1] == "with-log") {
@@ -137,34 +120,34 @@ void Workspace::HandleInit(){
     try {
         editor = CreateRef<Editor>(fp, logMode);
     } catch (const std::exception& e) {
-        Outputer::ErrorLn(m_CurrentCommand) << "Failed to create editor: " << e.what();
-        return;
+        Outputer::ErrorLn(command) << "Failed to create editor: " << e.what();
+        return false;
     }
     m_CurrentEditor = static_cast<int>(m_Editors.size());
     m_Editors.push_back(editor);
     GetCurrentEditor()->UpdateTime();
     UpdateLogMode(GetCurrentEditor()->GetLogMode());
-    m_Success = true;
-}
 
-void Workspace::HandleClose(){
-    if (!m_CurrentCommand.GetArgs().empty()){
+    return true;
+}
+bool Workspace::HandleClose(const Command& command){
+    if (!command.GetArgs().empty()){
         // user specified file
-        auto fp = m_CurrentCommand.GetArgs()[0];
+        auto fp = command.GetArgs()[0];
         int editorIndex = GetEditorIndexByPath(fp);
         if (editorIndex >= 0){
             m_Editors[editorIndex]->AskSaving();
             m_Editors.erase(m_Editors.begin() + editorIndex);
             m_CurrentEditor = GetLastEditorIndex();
         } else{
-            Outputer::ErrorLn(m_CurrentCommand) << "File `" << fp << "` not found in workspace";
+            Outputer::ErrorLn(command) << "File `" << fp << "` not found in workspace";
+            return false;
         }
-        return;
     }
 
     if (m_CurrentEditor < 0 || m_CurrentEditor >= m_Editors.size()){
-        Outputer::ErrorLn(m_CurrentCommand) << "No current editor";
-        return;
+        Outputer::ErrorLn(command) << "No current editor";
+        return false;
     }
 
     m_Editors[m_CurrentEditor]->AskSaving();
@@ -174,21 +157,24 @@ void Workspace::HandleClose(){
     if (GetCurrentEditor()) {
         UpdateLogMode(GetCurrentEditor()->GetLogMode());
     }
-    m_Success = true;
+
+    return true;
 
 }
-void Workspace::HandleEdit(){
-    auto to = GetEditorIndexByPath(m_CurrentCommand.GetArgs()[0]);
+
+bool Workspace::HandleEdit(const Command& command){
+    auto to = GetEditorIndexByPath(command.GetArgs()[0]);
     if (to < 0){
-        Outputer::ErrorLn(m_CurrentCommand) << "No such editor for file - " << m_CurrentCommand.GetArgs()[0];
-        return;
+        Outputer::ErrorLn(command) << "No such editor for file - " << command.GetArgs()[0];
+        return false;
     }
     m_CurrentEditor = to;
     GetCurrentEditor()->UpdateTime();
     UpdateLogMode(GetCurrentEditor()->GetLogMode());
-    m_Success = true;
+
+    return true;
 }
-void Workspace::HandleEditorList() {
+bool Workspace::HandleEditorList(const Command& command) {
     for (int i = 0; i < m_Editors.size(); i++){
         if (i == m_CurrentEditor){
             Outputer::Out() << ">";
@@ -201,54 +187,75 @@ void Workspace::HandleEditorList() {
         }
         Outputer::Out() << '\n';
     }
-    m_Success = true;
+
+    return true;
 }
-void Workspace::HandleDirTree() {
+bool Workspace::HandleDirTree(const Command& command) {
     std::string fp;
-    if (!m_CurrentCommand.GetArgs().empty()) {
-        fp = m_CurrentCommand.GetArgs()[0];
+    if (!command.GetArgs().empty()) {
+        fp = command.GetArgs()[0];
     } else {
         fp = std::filesystem::current_path().string();
     }
     Outputer::Out() << fp << std::endl;
     DrawDirTree(fp, "");
-    m_Success = true;
+
+    return true;
 }
-
-void Workspace::HandleLogChange(LogMode logMode) {
+bool Workspace::HandleLogOn(const Command& command) {
     Ref<Editor> targetEditor;
-
-    if (m_CurrentCommand.GetArgs().empty()) {
+    LogMode logMode = LogMode::WithLog;
+    if (command.GetArgs().empty()) {
         targetEditor = GetCurrentEditor();
     } else {
-        targetEditor = GetEditorByPath(m_CurrentCommand.GetArgs()[0]);
+        targetEditor = GetEditorByPath(command.GetArgs()[0]);
     }
     if (!targetEditor) {
-        Outputer::ErrorLn(m_CurrentCommand) << "No such editor";
-        return;
+        Outputer::ErrorLn(command) << "No such editor";
+        return false;
     }
     targetEditor->SetLogMode(logMode);
     m_LogMode = m_CurrentEditor < 0 ? logMode : GetCurrentEditor()->GetLogMode();
-    m_Success = true;
-}
-void Workspace::HandleLogShow() {
-    Ref<Editor> targetEditor;
 
-    if (m_CurrentCommand.GetArgs().empty()) {
+    return true;
+}
+
+bool Workspace::HandleLogOff(const Command& command) {
+    Ref<Editor> targetEditor;
+    LogMode logMode = LogMode::NoLog;
+    if (command.GetArgs().empty()) {
         targetEditor = GetCurrentEditor();
     } else {
-        targetEditor = GetEditorByPath(m_CurrentCommand.GetArgs()[0]);
+        targetEditor = GetEditorByPath(command.GetArgs()[0]);
     }
     if (!targetEditor) {
-        Outputer::ErrorLn(m_CurrentCommand) << "No such editor";
-        return;
+        Outputer::ErrorLn(command) << "No such editor";
+        return false;
+    }
+    targetEditor->SetLogMode(logMode);
+    m_LogMode = m_CurrentEditor < 0 ? logMode : GetCurrentEditor()->GetLogMode();
+
+    return true;
+}
+
+bool Workspace::HandleLogShow(const Command& command) {
+    Ref<Editor> targetEditor;
+
+    if (command.GetArgs().empty()) {
+        targetEditor = GetCurrentEditor();
+    } else {
+        targetEditor = GetEditorByPath(command.GetArgs()[0]);
+    }
+    if (!targetEditor) {
+        Outputer::ErrorLn(command) << "No such editor";
+        return false;
     }
     this->m_Logger->Show();
     targetEditor->GetLogger()->Show();
-    m_Success = true;
-}
 
-void Workspace::HandleExit() {
+    return true;
+}
+bool Workspace::HandleExit(const Command& command) {
     for (const auto& editor : m_Editors) {
         if (editor->IsModified()) {
             editor->AskSaving();
@@ -256,7 +263,24 @@ void Workspace::HandleExit() {
     }
     ExportState();
     m_Running = false;
-    m_Success = true;
+
+    return true;
+}
+
+/**
+ * @return -1 when no editors
+ */
+int Workspace::GetLastEditorIndex() const{
+    long long tp = 0;
+    int index = -1;
+    for (int i = 0; i < m_Editors.size(); i++){
+        const auto current = m_Editors[i]->GetLastTime().time_since_epoch().count();
+        if (current > tp){
+            tp = current;
+            index = i;
+        }
+    }
+    return index;
 }
 
 void Workspace::ExportState() const {
@@ -267,7 +291,7 @@ void Workspace::ExportState() const {
     }
     std::ofstream outFile("data/.editor_workspace");
     if (!outFile.is_open()) {
-        Outputer::ErrorLn(m_CurrentCommand) << "Failed to update workspace file";
+        Outputer::InfoLn() << "Failed to update workspace file";
         return;
     }
     outFile << jsonString;
@@ -323,22 +347,6 @@ void Workspace::DeserializeJson(const nlohmann::json& j) {
     }
 }
 
-/**
- * @return -1 when no editors
- */
-int Workspace::GetLastEditorIndex() const{
-    long long tp = 0;
-    int index = -1;
-    for (int i = 0; i < m_Editors.size(); i++){
-        const auto current = m_Editors[i]->GetLastTime().time_since_epoch().count();
-        if (current > tp){
-            tp = current;
-            index = i;
-        }
-    }
-    return index;
-}
-
 Ref<Editor> Workspace::GetEditorByPath(const std::string& path) const
 {
     for (const auto& editor : m_Editors) {
@@ -362,3 +370,17 @@ void Workspace::UpdateLogMode(const LogMode logMode) {
         this->m_LogMode = logMode;
     }
 }
+//
+// const std::unordered_map<Command::Type, Workspace::CommandStrategy> Workspace::s_HandlerMethods = {
+//     {Command::Type::Load,        &Workspace::HandleLoad},
+//     {Command::Type::Save,        &Workspace::HandleSave},
+//     {Command::Type::Init,        &Workspace::HandleInit},
+//     {Command::Type::Close,       &Workspace::HandleClose},
+//     {Command::Type::Edit,        &Workspace::HandleEdit},
+//     {Command::Type::EditorList,  &Workspace::HandleEditorList},
+//     {Command::Type::DirTree,     &Workspace::HandleDirTree},
+//     {Command::Type::LogOn,       &Workspace::HandleLogOn},
+//     {Command::Type::LogOff,      &Workspace::HandleLogOff},
+//     {Command::Type::LogShow,     &Workspace::HandleLogShow},
+//     {Command::Type::Exit,        &Workspace::HandleExit},
+// };

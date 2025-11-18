@@ -9,6 +9,7 @@
 #include "Command.h"
 #include "Core.h"
 #include "Logging.h"
+#include "CommandExecuting.h"
 
 std::pair<int, int> ParseRange(const std::string& range);
 
@@ -26,7 +27,7 @@ struct EditorData {
     LogMode logMode = LogMode::None;
 };
 
-class Editor : public CommandHandler {
+class Editor : public CommandExecutor {
 public:
     Editor();
     explicit Editor(const std::string& filePathText, LogMode logMode = LogMode::None);
@@ -43,28 +44,33 @@ public:
     void SetLogMode(LogMode m) { m_Data.logMode = m; }
     bool IsModified() const { return m_Data.modified; }
     void SetModified(bool m) { m_Data.modified = m; }
-    const std::vector<std::string>& GetLines() { return m_Data.lines; };
+    const std::vector<std::string>& GetLines() const { return m_Data.lines; };
 
+protected:
+    void RegisterCommandHandlingStrategies() override;
 private:
-    bool HandleShow() const;
-    bool HandleAppend();
-    bool HandleInsert();
-    bool HandleDelete();
-    bool HandleReplace();
-    bool HandleUndo();
-    bool HandleRedo();
+    bool HandleShow   (const Command& command);
+    bool HandleAppend (const Command& command);
+    bool HandleInsert (const Command& command);
+    bool HandleDelete (const Command& command);
+    bool HandleReplace(const Command& command);
+    bool HandleUndo   (const Command& command);
+    bool HandleRedo   (const Command& command);
     friend class EditorModificationScope;
-    bool GetAndValidateLineColRange(int& lineIndex, int& col) const;
+    bool GetAndValidateLineColRange(const Command& command, int& lineIndex, int& col) const;
     void Insert(int lineIndex, int col, const std::vector<std::string>::value_type& raw);
     Scope<EditorData> CreateDataSnapshot();
 
 private:
+    CommandDispatcher<Editor> m_Dispatcher;
     std::stack<Scope<EditorData>> m_UndoStack;
     std::stack<Scope<EditorData>> m_RedoStack;
     std::string m_FilePath;
     EditorData m_Data;
     std::chrono::time_point<std::chrono::system_clock> m_LastTime;
     Ref<Logger> m_Logger;
+    // using CommandStrategy = bool (Editor::*)(const Command&);
+    // static const std::unordered_map<Command::Type, CommandStrategy> s_HandlerMethods;
 };
 
 class EditorModificationScope {
@@ -72,7 +78,7 @@ public:
     explicit EditorModificationScope(Editor* editor)
         : m_Editor(editor), m_Snapshot(editor->CreateDataSnapshot()) {}
     ~EditorModificationScope() {
-        m_Editor->m_UndoStack = {};
+        m_Editor->m_RedoStack = {};
         m_Editor->m_Data.modified = true;
         m_Editor->UpdateTime();
         m_Editor->m_UndoStack.push(std::move(m_Snapshot));
@@ -82,4 +88,4 @@ private:
     Scope<EditorData> m_Snapshot;
 };
 
-#define MODIFICATION_SCOPE auto _editorModificationScope = EditorModificationScope(this)
+#define MODIFICATION_SCOPE auto _editorModificationScope##__LINE__ = EditorModificationScope(this);

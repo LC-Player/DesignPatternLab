@@ -9,7 +9,7 @@
 #include <cassert>
 
 #include "Core.h"
-#include "Workspace.h"
+#include "Components/Workspace.h"
 #include "Command.h"
 #include "Outputer.h"
 
@@ -41,13 +41,13 @@ void Application::Run()
 		if (!command.Validate())
 			continue;
 		// handle
-		switch (command.GetHandler())
+		switch (GetExecutorFromType(command.GetType()))
 		{
-		case HandlerType::Workspace:
+		case CommandExecuting::Workspace:
 			assert(m_Workspace != nullptr);
 			m_Workspace->Handle(command);
 			break;
-		case HandlerType::Editor: {
+		case CommandExecuting::Editor: {
 			const auto editor = m_Workspace->GetCurrentEditor();
 			if (!editor) {
 				Outputer::ErrorLn(command) << "no current editor";

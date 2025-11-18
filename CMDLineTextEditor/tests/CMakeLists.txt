@@ -5,15 +5,16 @@ add_executable(CMDLineTextEditorTest)
 target_sources(CMDLineTextEditorTest PRIVATE
         "../src/Application.cpp"
         "../src/Command.cpp"
-        "../src/Editor.cpp"
-        "../src/Workspace.cpp"
+        "../src/Components/Editor.cpp"
+        "../src/Components/Workspace.cpp"
         "../src/TreeDrawer.cpp"
-        "../src/Logging.cpp"
+        "../src/Components/Logging.cpp"
         "test.cpp"
 )
 
 target_include_directories(CMDLineTextEditorTest PRIVATE
         "../src"
+        "../src/Components"
         "../vendors/nlohmann-json/single_include"
 )
 

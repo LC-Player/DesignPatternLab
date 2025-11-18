@@ -1,6 +1,7 @@
 #pragma once
-#include "Workspace.h"
+#include "Components/Workspace.h"
 #include "Core.h"
+#include "CommandExecuting.h"
 
 class Application {
 public:

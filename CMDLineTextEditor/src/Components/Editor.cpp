@@ -28,6 +28,16 @@ std::vector<std::string> ParseLineBreaks(const std::string& line, const std::str
     }
 }
 
+// const std::unordered_map<Command::Type, Editor::CommandStrategy> Editor::s_HandlerMethods = {
+//     {Command::Type::Append,  &Editor::HandleAppend},
+//     {Command::Type::Insert,  &Editor::HandleInsert},
+//     {Command::Type::Delete,  &Editor::HandleDelete},
+//     {Command::Type::Replace, &Editor::HandleReplace},
+//     {Command::Type::Show,    &Editor::HandleShow},
+//     {Command::Type::Undo,    &Editor::HandleUndo},
+//     {Command::Type::Redo,    &Editor::HandleRedo},
+// };
+
 Editor::Editor() = default;
 
 Editor::Editor(const std::string& filePathText, LogMode logMode)
@@ -66,58 +76,47 @@ Editor::Editor(const std::string& filePathText, LogMode logMode)
     }
     auto loggingPath = fp.parent_path().string() + "/." + fp.filename().string() + ".log";
     m_Logger = CreateRef<Logger>(loggingPath);
+    RegisterCommandHandlingStrategies();
 }
 
 void Editor::Handle(const Command& command)
 {
-    m_CurrentCommand = command;
-    int success = false;;
-    switch (command.GetType()) {
-    case Command::Type::Append:
-        success = HandleAppend();
-        break;
-    case Command::Type::Insert:
-        success = HandleInsert();
-        break;
-    case Command::Type::Delete:
-        success = HandleDelete();
-        break;
-    case Command::Type::Replace:
-        success = HandleReplace();
-        break;
-    case Command::Type::Show:
-        success = HandleShow();
-        break;
-    case Command::Type::Undo:
-        success = HandleUndo();
-        break;
-    case Command::Type::Redo:
-        success= HandleRedo();
-        break;
-    default:
-        Outputer::ErrorLn(command) << "Command not handled in Editor::Handle";
-        return;
+    bool success = false;
+    if (m_Dispatcher.Dispatch(this, command)) {
+        success = true;
+    } else {
+        Outputer::ErrorLn(command) << "Command not handled in workspace.";
     }
-    if (success && GetLogMode() == LogMode::WithLog) {
+    if (success && m_Data.logMode == LogMode::WithLog) {
         m_Logger->Log(command);
     }
 }
 
-bool Editor::HandleShow() const {
+void Editor::RegisterCommandHandlingStrategies() {
+    m_Dispatcher.Register(Command::Type::Append, &Editor::HandleAppend);
+    m_Dispatcher.Register(Command::Type::Insert, &Editor::HandleInsert);
+    m_Dispatcher.Register(Command::Type::Delete, &Editor::HandleDelete);
+    m_Dispatcher.Register(Command::Type::Replace, &Editor::HandleReplace);
+    m_Dispatcher.Register(Command::Type::Show, &Editor::HandleShow);
+    m_Dispatcher.Register(Command::Type::Undo, &Editor::HandleUndo);
+    m_Dispatcher.Register(Command::Type::Redo, &Editor::HandleRedo);
+}
+
+bool Editor::HandleShow(const Command& command) {
     int from = 0, to = static_cast<int>(m_Data.lines.size()) - 1;
-    if (!m_CurrentCommand.GetArgs().empty()) {
+    if (!command.GetArgs().empty()) {
         try {
-            auto rangeStr = m_CurrentCommand.GetArgs()[0];
+            auto rangeStr = command.GetArgs()[0];
             auto r = ParseRange(rangeStr);
             from = r.first - 1;
             to = r.second - 1;
         } catch (const std::exception&) {
-            Outputer::ErrorLn(m_CurrentCommand) << "Invalid range format";
+            Outputer::ErrorLn(command) << "Invalid range format";
             return false;
         }
 
         if (from < 0 || to < 0 || from >= m_Data.lines.size() || to >= m_Data.lines.size()) {
-            Outputer::ErrorLn(m_CurrentCommand) << "Range out of bounds";
+            Outputer::ErrorLn(command) << "Range out of bounds";
             return false;
         }
         if (from > to) {
@@ -131,37 +130,37 @@ bool Editor::HandleShow() const {
     return true;
 }
 
-bool Editor::HandleAppend() {
+bool Editor::HandleAppend(const Command& command) {
     MODIFICATION_SCOPE;
-    m_Data.lines.emplace_back(m_CurrentCommand.GetArgs()[0]);
+    m_Data.lines.emplace_back(command.GetArgs()[0]);
     m_Data.modified = true;
     return true;
 }
 
-bool Editor::HandleInsert() {
+bool Editor::HandleInsert(const Command& command) {
     int lineIndex;
     int col;
-    if (!GetAndValidateLineColRange(lineIndex, col)) return false;
-    const auto& text = m_CurrentCommand.GetArgs()[1];
+    if (!GetAndValidateLineColRange(command, lineIndex, col)) return false;
+    const auto& text = command.GetArgs()[1];
     MODIFICATION_SCOPE;
     Insert(lineIndex, col, text);
     return true;
 }
 
-bool Editor::HandleDelete() {
+bool Editor::HandleDelete(const Command& command) {
     int lineIndex;
     int col;
-    if (!GetAndValidateLineColRange(lineIndex, col)) return false;
+    if (!GetAndValidateLineColRange(command, lineIndex, col)) return false;
     auto& lineText = m_Data.lines[lineIndex];
     int len = 0;
     try {
-        len = std::stoi(m_CurrentCommand.GetArgs()[1]);
+        len = std::stoi(command.GetArgs()[1]);
     } catch (const std::exception&) {
-        Outputer::ErrorLn(m_CurrentCommand) << "Invalid length";
+        Outputer::ErrorLn(command) << "Invalid length";
         return false;
     }
     if (static_cast<int>(lineText.size()) - col - len < 0) {
-        Outputer::ErrorLn(m_CurrentCommand) << "Deleted part beyond the end of the line";
+        Outputer::ErrorLn(command) << "Deleted part beyond the end of the line";
         return false;
     }
     MODIFICATION_SCOPE;
@@ -169,31 +168,31 @@ bool Editor::HandleDelete() {
     return true;
 }
 
-bool Editor::HandleReplace() {
+bool Editor::HandleReplace(const Command& command) {
     int lineIndex;
     int col;
-    if (!GetAndValidateLineColRange(lineIndex, col)) return false;
+    if (!GetAndValidateLineColRange(command, lineIndex, col)) return false;
     auto& lineText = m_Data.lines[lineIndex];
     int len = 0;
     try {
-        len = std::stoi(m_CurrentCommand.GetArgs()[1]);
+        len = std::stoi(command.GetArgs()[1]);
     } catch (const std::exception&) {
-        Outputer::ErrorLn(m_CurrentCommand) << "Invalid length";
+        Outputer::ErrorLn(command) << "Invalid length";
         return false;
     }
     if (static_cast<int>(lineText.size()) - col - len < 0) {
-        Outputer::ErrorLn(m_CurrentCommand) << "Replaced part beyond the end of the line";
+        Outputer::ErrorLn(command) << "Replaced part beyond the end of the line";
         return false;
     }
     MODIFICATION_SCOPE;
     lineText.erase(lineText.begin() + col, lineText.begin() + col + len);
-    Insert(lineIndex, col, m_CurrentCommand.GetArgs()[2]);
+    Insert(lineIndex, col, command.GetArgs()[2]);
     return true;
 }
 
-bool Editor::HandleUndo() {
+bool Editor::HandleUndo(const Command& command) {
     if (m_UndoStack.empty()) {
-        Outputer::ErrorLn(m_CurrentCommand) << "Nothing to undo";
+        Outputer::ErrorLn(command) << "Nothing to undo";
         return false;
     }
     auto snapshot = CreateDataSnapshot();
@@ -203,9 +202,9 @@ bool Editor::HandleUndo() {
     UpdateTime();
     return true;
 }
-bool Editor::HandleRedo() {
+bool Editor::HandleRedo(const Command& command) {
     if (m_RedoStack.empty()) {
-        Outputer::ErrorLn(m_CurrentCommand) << "Nothing to redo";
+        Outputer::ErrorLn(command) << "Nothing to redo";
         return false;
     }
     auto snapshot = CreateDataSnapshot();
@@ -217,23 +216,23 @@ bool Editor::HandleRedo() {
 }
 
 
-bool Editor::GetAndValidateLineColRange(int& lineIndex, int& col) const {
+bool Editor::GetAndValidateLineColRange(const Command& command, int& lineIndex, int& col) const {
     std::pair<int, int> range;
     try {
-        range = ParseRange(m_CurrentCommand.GetArgs()[0]);
+        range = ParseRange(command.GetArgs()[0]);
     } catch (const std::exception&) {
-        Outputer::ErrorLn(m_CurrentCommand) << "Invalid range format";
+        Outputer::ErrorLn(command) << "Invalid range format";
         return false;
     }
     lineIndex = range.first - 1;
     col = range.second - 1;
     if (lineIndex < 0 || lineIndex >= m_Data.lines.size()) {
-        Outputer::ErrorLn(m_CurrentCommand) << "Line out of bounds";
+        Outputer::ErrorLn(command) << "Line out of bounds";
         return false;
     }
     auto& lineText = m_Data.lines[lineIndex];
     if (col < 0 || col > lineText.size()) {
-        Outputer::ErrorLn(m_CurrentCommand) << "Column out of bounds";
+        Outputer::ErrorLn(command) << "Column out of bounds";
         return false;
     }
     return true;

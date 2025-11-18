@@ -6,8 +6,8 @@
 #include <string>
 #include <memory>
 
-#include "Editor.h"
-#include "Workspace.h"
+#include "../src/Components/Editor.h"
+#include "../src/Components/Workspace.h"
 
 void TestCommand();
 void TestEditor();
@@ -47,7 +47,6 @@ void TestCommand() {
 
     Command logCommand("log-show");
     assert(logCommand.GetType() == Command::Type::LogShow);
-    assert(logCommand.GetHandler() == HandlerType::Workspace);
     std::cout << "Passed: log-show command with type check" << std::endl;
 
     std::cout << "======== End of Command Tests =========" << std::endl << std::endl;
@@ -128,11 +127,11 @@ void TestEditor() {
 
     assert(tempFileEditor->GetLogger()->GetBuffer().find("insert") != std::string::npos);
     assert(tempFileEditor->GetLogger()->GetBuffer().find("append") == std::string::npos);
-    std::cout << "Passed: editor log mode and logging";
+    std::cout << "Passed: editor log mode and logging" << std::endl;
 
     tempFileEditor->Save();
     assert(!tempFileEditor->IsModified());
-    std::cout << "Passed: saving";
+    std::cout << "Passed: saving" << std::endl;
 
     std::filesystem::remove("testfile/tempeditorfile");
 
