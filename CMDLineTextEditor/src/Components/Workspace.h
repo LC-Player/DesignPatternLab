@@ -27,7 +27,6 @@ public:
 	LogMode GetLogMode() const { return m_LogMode; }
 
 	void Handle(const Command& command) override;
-	void CreateEditorByFilePath(const std::string& fp);
 
 	bool GetRunning() const { return m_Running; }
 protected:
@@ -45,6 +44,7 @@ private:
 	bool HandleLogShow    (const Command& command);
 	bool HandleExit       (const Command& command);
 
+	void CreateEditorByFilePath(const std::string& fp);
 	int GetLastEditorIndex() const;
 
 	void ExportState() const ;

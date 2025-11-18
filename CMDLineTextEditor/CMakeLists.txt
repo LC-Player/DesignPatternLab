@@ -17,6 +17,9 @@ target_include_directories(CMDLineTextEditor PRIVATE
     "src/Components"
     "vendors/nlohmann-json/single_include"
 )
+if (CMAKE_BUILT_TYPE STREQUAL "")
+    set(CMAKE_BUILD_TYPE "Release")
+endif ()
 
 if (CMAKE_BUILT_TYPE STREQUAL "Debug")
     target_compile_definitions(CMDLineTextEditor PRIVATE _DEBUG)
@@ -28,4 +31,12 @@ endif ()
 
 if (MSVC)
     target_compile_options(CMDLineTextEditor PRIVATE /utf-8)
+endif()
+if (MINGW)
+    if (CMAKE_BUILD_TYPE STREQUAL "Release")
+        target_link_options(CMDLineTextEditor PRIVATE
+                -static-libgcc
+                -static-libstdc++
+        )
+    endif()
 endif()
